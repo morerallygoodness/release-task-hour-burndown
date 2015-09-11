@@ -1,0 +1,322 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+  <head>
+    <meta name="Name" content="Release Burndown Chart" />
+    <meta name="Version" content="1.7" />
+    <meta name="Vendor" content="Barry Mullan, edits by Joel Krooswyk" />
+    <!-- default libraries -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.4.3/jquery.min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.6/jquery-ui.min.js"></script>
+    <script src="https://datejs.googlecode.com/files/date.js"></script>
+    <script type='text/javascript' src='https://www.google.com/jsapi'></script>
+    <script type="text/javascript" src="/apps/1.32/sdk.js"></script> 
+    
+<script type="text/javascript">
+var SHOWTABLES = false;
+
+var dropdown = null;
+var rallyDataSource=null;
+var data = null;
+
+google.load('visualization', '1', {packages:['table','corechart']});
+google.setOnLoadCallback(function() {
+
+rally.addOnLoad(init);
+
+function drawTable(data,div) {
+// draw the table   
+var table = new google.visualization.Table(document.getElementById(div));
+table.draw(data, {showRowNumber: false, allowHtml : true});
+}
+
+function indexAt(arr,str) {
+for(var x = 0; x < arr.length; x++)
+if (arr[x] == str)
+return x;
+return -1;  
+}
+
+function logTable(data) {
+for (var r = 0 ; r < data.getNumberOfRows(); r++ ) {
+var msg = "";
+for (var c = 0 ; c < data.getNumberOfColumns(); c++) {
+msg+= (data.getValue(r,c)+" : ");
+}
+//log( msg+"<br/>");
+}   
+}
+
+// copy one google table to another
+function addTable(table_to, table_from) {
+for ( var r = 0 ; r < table_from.getNumberOfRows(); r++ ) {
+var arr = new Array();
+for ( var c = 0 ; c < table_from.getNumberOfColumns(); c++ )
+arr.push(table_from.getValue(r,c));
+
+table_to.addRow(arr);
+}
+}
+
+function normDate(date) {
+if (date != null) {
+var d = new Date( date.getFullYear(), date.getMonth(), date.getDate() );
+return d;
+}
+else
+return null;
+}
+
+   function getDates(startDate, stopDate) {
+      var dateArray = new Array();
+      var currentDate = startDate;
+      while (currentDate <= stopDate) {
+    dateArray.push(normDate(new Date(currentDate)))
+        currentDate = currentDate.addDays(1);
+      }
+      return dateArray;
+    }
+
+function fillReleaseDays(table,sdate,edate) {
+var dates = getDates((sdate), (edate));
+for(var x = 0 ; x < dates.length ; x++) {
+if(dates[x].getDay()!=0&&dates[x].getDay()!=6) {
+table.addRow ( [ dates[x],"",0,0] );
+}
+}
+}
+
+function createSummaryFlowDataTable() {
+
+var summaryData = new google.visualization.DataTable();
+
+summaryData.addColumn('date', 'Date');
+summaryData.addColumn('string', 'State');
+summaryData.addColumn('number', 'Estimate');
+summaryData.addColumn('number', 'ToDo');
+
+return summaryData;
+}
+
+function pivot(data) {
+
+var pdata = new google.visualization.DataTable();
+
+pdata.addColumn('string','label');
+
+for (var row = 0; row < data.getNumberOfRows(); row++)
+pdata.addColumn('number', ""+ data.getValue(row,0).toString("M/d"));
+
+
+for (var col = 1; col < data.getNumberOfColumns(); col++ ){
+
+pdata.addRow();
+
+for( var row = 0 ; row < data.getNumberOfRows(); row++) {
+
+pdata.setValue( col-1, 0, data.getColumnLabel(col));
+
+pdata.setValue( col-1, row+1, data.getValue(row,col));
+
+}
+
+}
+return pdata;
+}
+
+function calcBurnDown(table) {
+
+var initEstimate = table.getValue(0,1);
+var burndownFactor = (initEstimate / table.getNumberOfRows());
+// console.log("No Rows:"+table.getNumberOfRows());
+for ( var row = 0; row < table.getNumberOfRows(); row++) {
+var burndown = (initEstimate - ( (row+1) * burndownFactor));
+burndown = Math.round(burndown*10)/10
+// console.log("row:"+row+" burndown:"+burndown);
+table.setValue(row,3, burndown);    
+// null future values
+if (table.getValue(row,1) == 0)
+table.setValue(row,1,null);
+if (table.getValue(row,2) == 0)
+table.setValue(row,2,null);
+}
+}
+
+function chartIt() {
+
+//var table = new google.visualization.Table(document.getElementById('data_box'));
+        //table.draw(data, {showRowNumber: false});
+
+// group by date
+var dateGroup = google.visualization.data.group(data, 
+    [0], 
+    [ {'column': 2, 'aggregation': google.visualization.data.sum, 'type': 'number','label':'Estimate'},
+      {'column': 3, 'aggregation': google.visualization.data.sum, 'type': 'number','label':'To Do'}]
+);
+
+dateGroup.addColumn('number','Ideal');
+
+calcBurnDown(dateGroup);
+
+var formatter = new google.visualization.DateFormat({pattern: "M/d"});
+formatter.format(dateGroup,0);
+
+if (SHOWTABLES) {   
+var group_table = new google.visualization.Table(document.getElementById('group_box'));
+        group_table.draw(dateGroup, {showRowNumber: false});
+}
+
+// Pivot the table
+
+var pivotData = pivot(dateGroup);
+
+//   log("Pivot rows="+ pivotData.getNumberOfRows());
+
+if (SHOWTABLES) {
+var table = new google.visualization.Table(document.getElementById('pivot_table'));
+table.draw(pivotData, {showRowNumber: false, allowHtml : true});
+}
+
+// finally draw the chart
+
+var comboChart = new google.visualization.ComboChart(document.getElementById('chart_div'));
+
+comboChart.draw(dateGroup, {
+           title : 'Release Burndown',
+           vAxis: {title: "Hours"}, height: 400, width: 800,
+chartArea: {left:50,top:50,width:"75%",height:"75%"},
+
+            hAxis: {title: "Dates"},
+            seriesType: "area",
+           series: {   0:{type: "line",color: "black",  pointSize: "0"},
+           1:{type: "area",color: "#196C89",pointSize: "4",lineWidth: "1"},
+                    2:{type: "line",color: "#EF3F35",pointSize: "0"}
+}
+        });
+}
+
+function addCurrentReleaseValues(itname,data) {
+
+var query = new rally.sdk.util.Query('Release.Name = \"' + itname + '\"');
+//log(query);
+var queryArray = new Array();
+queryArray.push( {
+key: 'tasks',
+type: 'task',
+query: query,
+order: 'CreationDate',
+fetch: 'Estimate,ToDo'  
+});
+
+rallyDataSource.findAll(queryArray, function(results) {
+
+var est = 0;
+var todo = 0;
+for(var x = 0 ; x < results.tasks.length; x++) {
+est = est + results.tasks[x].Estimate;
+todo = todo + results.tasks[x].ToDo;
+}
+data.addRow([
+normDate(new Date()),
+"Defined",
+Math.round(est),
+Math.round(todo)]);
+//log(est + " - " + todo);
+chartIt();
+});
+}
+
+function drawBurndownChart(flowdata,itname,divname,start,end) {
+
+data = createSummaryFlowDataTable();
+
+fillReleaseDays(data, Date.parse(dropdown.getSelectedStart()), Date.parse(dropdown.getSelectedEnd()));
+
+for (var x = 0 ; x < flowdata.length ; x++ ) {
+var fd = flowdata[x];
+// skip values from before release start.
+if ( normDate(dojo.date.stamp.fromISOString(fd.CreationDate)) < normDate( Date.parse(dropdown.getSelectedStart())) )
+continue;
+
+data.addRow([
+normDate(dojo.date.stamp.fromISOString(fd.CreationDate)),
+fd.CardState,
+Math.round(fd.TaskEstimateTotal),
+Math.round(fd.CardToDoTotal)
+]);
+}   
+
+var d = normDate(new Date());
+if ( d >= Date.parse(dropdown.getSelectedStart()) && d <= Date.parse(dropdown.getSelectedEnd())) {
+addCurrentReleaseValues(itname,data);
+}
+chartIt(); 
+
+}
+
+function populateApp(results) {
+$("#spinner").remove();
+//   log(results.flowdata.length);
+drawBurndownChart(results.flowdata,dropdown.getSelectedName(),"mydiv");
+}
+
+function runQuery(){
+//   log(dropdown.getSelectedOids().length);
+var query = null;
+for ( var x = 0 ; x < dropdown.getSelectedOids().length; x++) {
+if (query == null)
+query = new rally.sdk.util.Query('ReleaseObjectID = \"' + dropdown.getSelectedOids()[x]+'\"');
+else
+query = query.or('ReleaseObjectID = \"' + dropdown.getSelectedOids()[x]+'\"');
+}
+//   log(query);
+var queryArray = new Array();
+queryArray.push( {
+key: 'flowdata',
+type: 'releasecumulativeflowdata',
+query: query,
+order: 'CreationDate',
+fetch: 'ObjectID,CreationDate,CardState,CardToDoTotal,TaskEstimateTotal'    
+});
+
+rallyDataSource.findAll(queryArray, populateApp);                                                             
+}
+
+function init() {
+
+  rallyDataSource = new rally.sdk.data.RallyDataSource('__WORKSPACE_OID__', '__PROJECT_OID__', '__PROJECT_SCOPING_UP__', '__PROJECT_SCOPING_DOWN__');
+   
+  dropdown = new rally.sdk.ui.ReleaseDropdown({label: "Select a release: ",obeyScoping : true}, rallyDataSource);
+  dropdown.display("release", runQuery);
+
+
+}
+
+function log(msg) {
+$("#log").append(""+msg+"<br/>");   
+}
+}); 
+
+function sleep(milliseconds) {
+  var start = new Date().getTime();
+  for (var i = 0; i < 1e7; i++) {
+    if ((new Date().getTime() - start) > milliseconds){
+      break;
+    }
+  }
+}
+
+</script>
+  <style>
+  #container1 {
+margin-top: -35px;  
+}
+</style>
+
+    <!-- end mashup script -->
+  </head>
+  <body>
+     <div id="release"></div>
+     <div id="chart_div"></div>
+  </body>
+</html>
